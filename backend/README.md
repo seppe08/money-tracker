@@ -1,5 +1,7 @@
 # Money Tracker API
 
+> **Note**: For the complete full-stack architecture, shared schemas, and project-wide roadmap, refer to the unified root [README.md](../README.md).
+
 FastAPI backend for the Money Tracker app, with JWT authentication and
 per-user data ownership.
 

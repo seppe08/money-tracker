@@ -1,22 +1,32 @@
-# OS and editors
+# ==============================================================================
+# Unified Root .gitignore for Money Tracker Monorepo (Backend & Frontend)
+# ==============================================================================
+
+# OS & Editor files
 .DS_Store
 Thumbs.db
 .idea/
+*.swp
+*.swo
 
-# VS Code: keep shared settings, ignore personal state
+# VS Code (persist team settings, ignore local state)
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
 
-# Environment files (never commit real secrets)
+# Environment & Secrets (never commit credentials or keys)
 .env
 .env.*
+.env*.local
 !.env.example
 **/.env
 **/.env.*
+**/.env*.local
 !**/.env.example
 
-# Python
+# ------------------------------------------------------------------------------
+# Backend (Python / FastAPI / SQLAlchemy / Alembic / SQLite)
+# ------------------------------------------------------------------------------
 **/__pycache__/
 **/*.py[cod]
 **/*.egg-info/
@@ -32,12 +42,14 @@ Thumbs.db
 **/dist/
 **/build/
 
-# Local databases
+# Local SQLite databases
 **/*.db
 **/*.sqlite
 **/*.sqlite3
 
-# Node / Expo
+# ------------------------------------------------------------------------------
+# Frontend (Node / Expo / React Native / Metro / TypeScript)
+# ------------------------------------------------------------------------------
 **/node_modules/
 **/.expo/
 **/web-build/
@@ -46,13 +58,21 @@ Thumbs.db
 **/coverage/
 **/.eslintcache
 **/*.tsbuildinfo
+**/.kotlin/
+*.orig.*
+
+# Native generated folders (Expo Continuous Native Generation)
 **/ios/
 **/android/
+
+# Package manager logs
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 
-# Secrets, signing material, certificates
+# ------------------------------------------------------------------------------
+# Certificates, Signing Keys & Keystores
+# ------------------------------------------------------------------------------
 *.pem
 *.key
 *.jks
@@ -61,7 +81,9 @@ yarn-error.*
 *.mobileprovision
 *.keystore
 
-# Logs and temporary files
+# ------------------------------------------------------------------------------
+# General logs & temp files
+# ------------------------------------------------------------------------------
 *.log
 *.tmp
 *.bak

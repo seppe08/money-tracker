@@ -1,5 +1,7 @@
 # Money Tracker – frontend
 
+> **Note**: For the complete full-stack architecture, shared schemas, and project-wide roadmap, refer to the unified root [README.md](../README.md).
+
 Expo (React Native) app with TypeScript, Expo Router, and JWT authentication.
 
 ## Requirements

@@ -12,6 +12,7 @@ import {
   ApiError,
   type AuthResponse,
   type RequestOptions,
+  fetchCurrentUser,
   loginRequest,
   logoutRequest,
   refreshRequest,
@@ -30,6 +31,9 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (input: { email: string; password: string; displayName: string }) => Promise<void>;
   signOut: () => Promise<void>;
+  updateProfile: (input: { displayName?: string; currency?: string }) => Promise<User>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
   /** Authenticated request that refreshes the access token once on 401. */
   authedRequest: <T>(path: string, options?: RequestOptions) => Promise<T>;
 };
@@ -96,7 +100,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async function restoreSession() {
       try {
         const token = await refreshAccessToken();
-        const profile = await request<User>('/api/v1/users/me', { token });
+        const profile = await fetchCurrentUser(token);
         if (!active) {
           return;
         }
@@ -201,9 +205,57 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [clearLocalSession, refreshAccessToken],
   );
 
+  const updateProfile = useCallback(
+    async (input: { displayName?: string; currency?: string }) => {
+      const updated = await authedRequest<User>('/api/v1/users/me', {
+        method: 'PATCH',
+        body: {
+          display_name: input.displayName,
+          currency: input.currency,
+        },
+      });
+      setUser(updated);
+      return updated;
+    },
+    [authedRequest],
+  );
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      await authedRequest<void>('/api/v1/users/me/password', {
+        method: 'POST',
+        body: { current_password: currentPassword, new_password: newPassword },
+      });
+      // The API revokes every session on a password change.
+      await clearLocalSession();
+    },
+    [authedRequest, clearLocalSession],
+  );
+
+  const deleteAccount = useCallback(
+    async (password: string) => {
+      await authedRequest<void>('/api/v1/users/me', {
+        method: 'DELETE',
+        body: { password },
+      });
+      await clearLocalSession();
+    },
+    [authedRequest, clearLocalSession],
+  );
+
   return (
     <AuthContext.Provider
-      value={{ status, user, signIn, signUp, signOut, authedRequest }}
+      value={{
+        status,
+        user,
+        signIn,
+        signUp,
+        signOut,
+        updateProfile,
+        changePassword,
+        deleteAccount,
+        authedRequest,
+      }}
     >
       {children}
     </AuthContext.Provider>

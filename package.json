@@ -1,0 +1,20 @@
+{
+  "name": "money-tracker-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack personal finance tracker monorepo (FastAPI + Expo React Native)",
+  "scripts": {
+    "dev:backend": "cd backend && uv run fastapi dev app/main.py --host 0.0.0.0",
+    "dev:frontend": "cd frontend && npm start",
+    "test:backend": "cd backend && uv run pytest",
+    "test:frontend": "cd frontend && npm test -- --runInBand",
+    "test": "npm run test:backend && npm run test:frontend",
+    "lint:backend": "cd backend && uv run ruff check . && uv run ruff format --check . && uv run mypy app",
+    "lint:frontend": "cd frontend && npm run lint && npm run typecheck",
+    "lint": "npm run lint:backend && npm run lint:frontend",
+    "typecheck": "cd frontend && npm run typecheck",
+    "format": "cd backend && uv run ruff check --fix . && uv run ruff format .",
+    "migrate": "cd backend && uv run alembic upgrade head",
+    "install:all": "cd backend && uv sync && cd ../frontend && npm install"
+  }
+}
