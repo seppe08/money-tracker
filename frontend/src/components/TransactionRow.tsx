@@ -1,19 +1,47 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 
 import type { Transaction } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 import { colors, spacing } from '@/theme/colors';
 import { formatCurrency, formatDate } from '@/utils/format';
 
 type TransactionRowProps = {
   transaction: Transaction;
   isFirst: boolean;
+  currency?: string;
+  onPress?: () => void;
 };
 
-export function TransactionRow({ transaction, isFirst }: TransactionRowProps) {
+export function TransactionRow({
+  transaction,
+  isFirst,
+  currency,
+  onPress,
+}: TransactionRowProps) {
+  const { currency: authCurrency } = useAuth();
+  const activeCurrency = currency || authCurrency || 'USD';
   const amount = Number(transaction.amount);
 
+  const handlePress = () => {
+    if (onPress) {
+      onPress();
+    } else {
+      router.push(`/transaction/${transaction.id}`);
+    }
+  };
+
   return (
-    <View style={[styles.row, !isFirst && styles.rowBorder]}>
+    <Pressable
+      accessibilityLabel={`Transaction: ${transaction.description}`}
+      accessibilityRole="button"
+      onPress={handlePress}
+      style={({ pressed }) => [
+        styles.row,
+        !isFirst && styles.rowBorder,
+        pressed && styles.pressed,
+      ]}
+    >
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>
           {transaction.description}
@@ -23,9 +51,9 @@ export function TransactionRow({ transaction, isFirst }: TransactionRowProps) {
         </Text>
       </View>
       <Text style={[styles.amount, amount >= 0 ? styles.income : styles.expense]}>
-        {formatCurrency(amount)}
+        {formatCurrency(amount, activeCurrency)}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -41,6 +69,9 @@ const styles = StyleSheet.create({
   rowBorder: {
     borderTopColor: colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  pressed: {
+    opacity: 0.7,
   },
   info: {
     flex: 1,

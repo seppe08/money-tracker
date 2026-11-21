@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
+import { useAuth } from '@/auth/AuthContext';
 import { colors, radius, spacing } from '@/theme/colors';
 import { formatCurrency } from '@/utils/format';
 
@@ -7,23 +8,38 @@ type BalanceCardProps = {
   balance: number;
   income: number;
   expenses: number;
+  currency?: string;
+  label?: string;
 };
 
-export function BalanceCard({ balance, income, expenses }: BalanceCardProps) {
+export function BalanceCard({
+  balance,
+  income,
+  expenses,
+  currency,
+  label = 'Total balance',
+}: BalanceCardProps) {
+  const { currency: authCurrency } = useAuth();
+  const activeCurrency = currency || authCurrency || 'USD';
+
   return (
     <View style={styles.card}>
-      <Text style={styles.label}>Total balance</Text>
-      <Text style={styles.balance}>{formatCurrency(balance)}</Text>
+      <Text style={styles.label}>{label}</Text>
+      <Text style={styles.balance}>{formatCurrency(balance, activeCurrency)}</Text>
 
       <View style={styles.row}>
         <View style={styles.stat}>
           <Text style={styles.statLabel}>Income</Text>
-          <Text style={[styles.statValue, styles.income]}>{formatCurrency(income)}</Text>
+          <Text style={[styles.statValue, styles.income]}>
+            {formatCurrency(income, activeCurrency)}
+          </Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.stat}>
           <Text style={styles.statLabel}>Expenses</Text>
-          <Text style={[styles.statValue, styles.expense]}>{formatCurrency(expenses)}</Text>
+          <Text style={[styles.statValue, styles.expense]}>
+            {formatCurrency(expenses, activeCurrency)}
+          </Text>
         </View>
       </View>
     </View>
