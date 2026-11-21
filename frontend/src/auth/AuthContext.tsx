@@ -28,14 +28,17 @@ export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 type AuthContextValue = {
   status: AuthStatus;
   user: User | null;
+  currency: string;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (input: { email: string; password: string; displayName: string }) => Promise<void>;
   signOut: () => Promise<void>;
+  logoutAll: () => Promise<void>;
   updateProfile: (input: { displayName?: string; currency?: string }) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
   /** Authenticated request that refreshes the access token once on 401. */
   authedRequest: <T>(path: string, options?: RequestOptions) => Promise<T>;
+  getAccessToken: (forceRefresh?: boolean) => Promise<string>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -243,18 +246,52 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [authedRequest, clearLocalSession],
   );
 
+  const getAccessToken = useCallback(
+    async (forceRefresh = false): Promise<string> => {
+      let token = accessToken.current;
+      if (!token || forceRefresh) {
+        try {
+          token = await refreshAccessToken();
+        } catch (err) {
+          await clearLocalSession();
+          if (err instanceof ApiError && err.status === 401) {
+            throw new ApiError(401, SESSION_EXPIRED_MESSAGE);
+          }
+          throw err;
+        }
+      }
+      return token;
+    },
+    [clearLocalSession, refreshAccessToken],
+  );
+
+  const logoutAll = useCallback(async () => {
+    try {
+      await authedRequest<void>('/api/v1/auth/logout-all', { method: 'POST' });
+    } catch {
+      // Local session must be cleared even if remote revocation fails.
+    } finally {
+      await clearLocalSession();
+    }
+  }, [authedRequest, clearLocalSession]);
+
+  const currency = user?.currency ?? 'USD';
+
   return (
     <AuthContext.Provider
       value={{
         status,
         user,
+        currency,
         signIn,
         signUp,
         signOut,
+        logoutAll,
         updateProfile,
         changePassword,
         deleteAccount,
         authedRequest,
+        getAccessToken,
       }}
     >
       {children}
