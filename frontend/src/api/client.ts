@@ -1,26 +1,9 @@
 import { API_URL } from '@/api/api-url';
+import { ApiError, buildQueryString, errorMessage } from './errors';
 
-export { API_URL };
+export { API_URL, ApiError, buildQueryString, errorMessage };
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-
-export class ApiError extends Error {
-  readonly status: number;
-  readonly requestId?: string;
-  readonly retryAfterSeconds?: number;
-
-  constructor(
-    status: number,
-    message: string,
-    options: { requestId?: string; retryAfterSeconds?: number } = {},
-  ) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.requestId = options.requestId;
-    this.retryAfterSeconds = options.retryAfterSeconds;
-  }
-}
 
 export type User = {
   id: string;
@@ -108,31 +91,7 @@ export type RequestOptions = {
   timeoutMs?: number;
 };
 
-export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.status === 429 && error.retryAfterSeconds) {
-      return `${error.message} Try again in ${error.retryAfterSeconds}s.`;
-    }
-    return error.message;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return 'Something went wrong. Please try again.';
-}
-
-export function buildQueryString(
-  query: Record<string, string | number | boolean | null | undefined>,
-): string {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query)) {
-    if (value === undefined || value === null || value === '') {
-      continue;
-    }
-    params.append(key, String(value));
-  }
-  return params.toString();
-}
+export type AuthedRequester = <T>(path: string, options?: RequestOptions) => Promise<T>;
 
 export async function errorFromResponse(response: Response): Promise<ApiError> {
   let message = `Request failed with status ${response.status}.`;
@@ -249,94 +208,179 @@ export function fetchHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/v1/health', { method: 'GET' });
 }
 
-export function fetchCurrentUser(token: string): Promise<User> {
-  return request<User>('/api/v1/users/me', { token });
+export function fetchCurrentUser(
+  tokenOrRequester: string | AuthedRequester,
+): Promise<User> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<User>('/api/v1/users/me');
+  }
+  return request<User>('/api/v1/users/me', { token: tokenOrRequester });
 }
 
 export function updateProfileRequest(
   input: { display_name?: string; currency?: string },
-  token: string,
+  tokenOrRequester: string | AuthedRequester,
 ): Promise<User> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<User>('/api/v1/users/me', {
+      method: 'PATCH',
+      body: input,
+    });
+  }
   return request<User>('/api/v1/users/me', {
     method: 'PATCH',
     body: input,
-    token,
+    token: tokenOrRequester,
   });
 }
 
 export function changePasswordRequest(
   input: { current_password: string; new_password: string },
-  token: string,
+  tokenOrRequester: string | AuthedRequester,
 ): Promise<void> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<void>('/api/v1/users/me/password', {
+      method: 'POST',
+      body: input,
+    });
+  }
   return request<void>('/api/v1/users/me/password', {
     method: 'POST',
     body: input,
-    token,
+    token: tokenOrRequester,
   });
 }
 
-export function deleteAccountRequest(password: string, token: string): Promise<void> {
+export function deleteAccountRequest(
+  password: string,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<void> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<void>('/api/v1/users/me', {
+      method: 'DELETE',
+      body: { password },
+    });
+  }
   return request<void>('/api/v1/users/me', {
     method: 'DELETE',
     body: { password },
-    token,
+    token: tokenOrRequester,
+  });
+}
+
+export function logoutAllRequest(
+  tokenOrRequester: string | AuthedRequester,
+): Promise<void> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<void>('/api/v1/auth/logout-all', {
+      method: 'POST',
+    });
+  }
+  return request<void>('/api/v1/auth/logout-all', {
+    method: 'POST',
+    token: tokenOrRequester,
   });
 }
 
 export function fetchTransactions(
   query: TransactionQuery,
-  token: string,
+  tokenOrRequester: string | AuthedRequester,
 ): Promise<TransactionList> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<TransactionList>('/api/v1/transactions', {
+      query: query as Record<string, string | number | undefined>,
+    });
+  }
   return request<TransactionList>('/api/v1/transactions', {
-    token,
+    token: tokenOrRequester,
     query: query as Record<string, string | number | undefined>,
   });
 }
 
-export function fetchTransaction(id: string, token: string): Promise<Transaction> {
-  return request<Transaction>(`/api/v1/transactions/${encodeURIComponent(id)}`, { token });
+export function fetchTransaction(
+  id: string,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<Transaction> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<Transaction>(`/api/v1/transactions/${encodeURIComponent(id)}`);
+  }
+  return request<Transaction>(`/api/v1/transactions/${encodeURIComponent(id)}`, {
+    token: tokenOrRequester,
+  });
 }
 
 export function createTransactionRequest(
   input: TransactionInput,
-  token: string,
+  tokenOrRequester: string | AuthedRequester,
 ): Promise<Transaction> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<Transaction>('/api/v1/transactions', {
+      method: 'POST',
+      body: input,
+    });
+  }
   return request<Transaction>('/api/v1/transactions', {
     method: 'POST',
     body: input,
-    token,
+    token: tokenOrRequester,
   });
 }
 
 export function updateTransactionRequest(
   id: string,
   input: TransactionUpdateInput,
-  token: string,
+  tokenOrRequester: string | AuthedRequester,
 ): Promise<Transaction> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<Transaction>(`/api/v1/transactions/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
   return request<Transaction>(`/api/v1/transactions/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: input,
-    token,
+    token: tokenOrRequester,
   });
 }
 
-export function deleteTransactionRequest(id: string, token: string): Promise<void> {
+export function deleteTransactionRequest(
+  id: string,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<void> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<void>(`/api/v1/transactions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
   return request<void>(`/api/v1/transactions/${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    token,
+    token: tokenOrRequester,
   });
 }
 
 export function fetchTransactionSummary(
   query: TransactionQuery,
-  token: string,
+  tokenOrRequester: string | AuthedRequester,
 ): Promise<TransactionSummary> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<TransactionSummary>('/api/v1/transactions/summary', {
+      query: query as Record<string, string | number | undefined>,
+    });
+  }
   return request<TransactionSummary>('/api/v1/transactions/summary', {
-    token,
+    token: tokenOrRequester,
     query: query as Record<string, string | number | undefined>,
   });
 }
 
-export function fetchCategories(token: string): Promise<string[]> {
-  return request<string[]>('/api/v1/transactions/categories', { token });
+export function fetchCategories(
+  tokenOrRequester: string | AuthedRequester,
+): Promise<string[]> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<string[]>('/api/v1/transactions/categories');
+  }
+  return request<string[]>('/api/v1/transactions/categories', {
+    token: tokenOrRequester,
+  });
 }
