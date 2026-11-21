@@ -19,7 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.rate_limit import auth_rate_limiter
 from app.db.base import Base
-from app.db.session import get_db
+from app.db.session import configure_engine, get_db
 from app.main import app
 from app.models import RefreshSession, Transaction, User  # noqa: F401
 
@@ -33,6 +33,7 @@ async def engine() -> AsyncIterator[AsyncEngine]:
         poolclass=StaticPool,
         connect_args={"check_same_thread": False},
     )
+    configure_engine(test_engine)
     async with test_engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     yield test_engine

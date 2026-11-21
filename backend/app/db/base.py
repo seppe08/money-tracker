@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime
+from typing import ClassVar
 
 from sqlalchemy import DateTime, Uuid, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -10,7 +11,7 @@ def utcnow() -> datetime:
 
 
 class Base(DeclarativeBase):
-    type_annotation_map = {
+    type_annotation_map: ClassVar[dict[object, object]] = {
         uuid.UUID: Uuid,
         datetime: DateTime(timezone=True),
     }

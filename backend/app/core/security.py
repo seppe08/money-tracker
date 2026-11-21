@@ -42,7 +42,8 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     try:
         return password_hasher.verify(password, password_hash)
-    except Exception:  # noqa: BLE001 - a corrupt hash must behave like a mismatch
+    except Exception:
+        # A corrupt or unsupported hash must behave like a mismatch.
         return False
 
 
@@ -78,7 +79,7 @@ def create_access_token(user_id: UUID, token_version: int) -> tuple[str, datetim
     claims = _base_claims(
         user_id=user_id,
         token_version=token_version,
-        token_type="access",
+        token_type="access",  # noqa: S106 - JWT type claim, not a password
         expires_at=expires_at,
     )
     return jwt.encode(
@@ -93,7 +94,7 @@ def create_refresh_token(
     claims = _base_claims(
         user_id=user_id,
         token_version=token_version,
-        token_type="refresh",
+        token_type="refresh",  # noqa: S106 - JWT type claim, not a password
         expires_at=expires_at,
     )
     claims["jti"] = jti

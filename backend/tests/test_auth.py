@@ -30,7 +30,8 @@ async def test_register_returns_tokens_and_user(client: AsyncClient) -> None:
 
     assert body["token_type"] == "bearer"
     assert body["expires_in"] > 0
-    assert body["access_token"] and body["refresh_token"]
+    assert body["access_token"]
+    assert body["refresh_token"]
     assert body["user"]["email"] == "user@example.com"
     assert body["user"]["display_name"] == "Ada"
 
