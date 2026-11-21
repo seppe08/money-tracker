@@ -31,8 +31,11 @@ async def test_create_and_list_only_own_transactions(client: AsyncClient) -> Non
 
     alice_list = await client.get("/api/v1/transactions", headers=bearer(alice["access_token"]))
     assert alice_list.status_code == 200
-    assert [item["description"] for item in alice_list.json()] == ["Rent"]
-    assert all(item["user_id"] == alice["user"]["id"] for item in alice_list.json())
+    items = alice_list.json()["items"]
+    assert [item["description"] for item in items] == ["Rent"]
+    assert all(item["user_id"] == alice["user"]["id"] for item in items)
+    assert alice_list.json()["total"] == 1
+    assert alice_list.headers["x-total-count"] == "1"
 
 
 async def test_user_id_in_body_cannot_override_owner(client: AsyncClient) -> None:

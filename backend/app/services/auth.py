@@ -7,10 +7,12 @@ lets future flows (password reset, email verification) reuse the same rules.
 
 import hmac
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import cast
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +38,14 @@ class EmailAlreadyRegisteredError(Exception):
 
 
 class InvalidRefreshTokenError(Exception):
+    pass
+
+
+class InvalidPasswordError(Exception):
+    pass
+
+
+class PasswordReuseError(Exception):
     pass
 
 
@@ -79,6 +89,59 @@ async def authenticate_user(*, db: AsyncSession, email: str, password: str) -> U
     return user
 
 
+async def update_profile(
+    *,
+    db: AsyncSession,
+    user: User,
+    display_name: str | None = None,
+    currency: str | None = None,
+) -> User:
+    if display_name is not None:
+        user.display_name = display_name.strip()
+    if currency is not None:
+        user.currency = currency.upper()
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def change_password(
+    *,
+    db: AsyncSession,
+    user: User,
+    current_password: str,
+    new_password: str,
+) -> None:
+    """Change the password and invalidate every existing session.
+
+    Bumping `token_version` kills access tokens immediately; revoking refresh
+    sessions stops new ones from being minted. The client must sign in again.
+    """
+    if not verify_password(current_password, user.password_hash):
+        raise InvalidPasswordError
+    if verify_password(new_password, user.password_hash):
+        raise PasswordReuseError
+
+    user.password_hash = hash_password(new_password)
+    user.token_version += 1
+    await db.execute(
+        update(RefreshSession)
+        .where(
+            RefreshSession.user_id == user.id,
+            RefreshSession.revoked_at.is_(None),
+        )
+        .values(revoked_at=utcnow())
+    )
+    await db.commit()
+
+
+async def delete_account(*, db: AsyncSession, user: User, password: str) -> None:
+    if not verify_password(password, user.password_hash):
+        raise InvalidPasswordError
+    await db.delete(user)
+    await db.commit()
+
+
 def _build_token_material(user: User, *, family_id: UUID) -> tuple[TokenPair, RefreshSession]:
     session_id = uuid.uuid4()
     jti = str(uuid.uuid4())
@@ -107,9 +170,29 @@ def _build_token_material(user: User, *, family_id: UUID) -> tuple[TokenPair, Re
     return pair, session
 
 
+async def _prune_sessions(*, db: AsyncSession, user_id: UUID) -> None:
+    """Remove expired and long-revoked rows so the table does not grow forever."""
+    now = utcnow()
+    revoked_cutoff = now - timedelta(days=settings.refresh_session_retention_days)
+    await db.execute(
+        delete(RefreshSession)
+        .where(
+            RefreshSession.user_id == user_id,
+            or_(
+                RefreshSession.expires_at < now,
+                RefreshSession.revoked_at < revoked_cutoff,
+            ),
+        )
+        # SQLite returns naive datetimes; evaluating the criteria against the
+        # identity map would compare naive and aware values.
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def issue_token_pair(*, db: AsyncSession, user: User) -> TokenPair:
     pair, session = _build_token_material(user, family_id=uuid.uuid4())
     db.add(session)
+    await _prune_sessions(db=db, user_id=user.id)
     await db.commit()
     return pair
 
@@ -155,19 +238,23 @@ async def rotate_refresh_token(*, db: AsyncSession, refresh_token: str) -> Token
 
     # Atomically mark the old row as used. If two requests race with the same
     # token, only one update affects a row; the loser is treated as reuse.
-    revoked = await db.execute(
-        update(RefreshSession)
-        .where(
-            RefreshSession.id == session.id,
-            RefreshSession.revoked_at.is_(None),
-        )
-        .values(revoked_at=utcnow(), replaced_by_jti=new_session.jti)
+    revoked = cast(
+        CursorResult,
+        await db.execute(
+            update(RefreshSession)
+            .where(
+                RefreshSession.id == session.id,
+                RefreshSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=utcnow(), replaced_by_jti=new_session.jti)
+        ),
     )
     if revoked.rowcount != 1:
         await _revoke_family(db=db, user_id=user_id, family_id=session.family_id)
         raise InvalidRefreshTokenError
 
     db.add(new_session)
+    await _prune_sessions(db=db, user_id=user_id)
     await db.commit()
     return pair
 

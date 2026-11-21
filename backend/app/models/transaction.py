@@ -2,7 +2,7 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Uuid
+from sqlalchemy import Date, ForeignKey, Index, Numeric, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -12,6 +12,11 @@ class Transaction(TimestampMixin, Base):
     """A user-owned money movement. Every query filters by `user_id`."""
 
     __tablename__ = "transactions"
+    __table_args__ = (
+        # Covers the default list ordering and date-range filters.
+        Index("ix_transactions_user_occurred", "user_id", "occurred_on"),
+        Index("ix_transactions_user_category", "user_id", "category"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(

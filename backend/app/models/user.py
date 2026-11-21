@@ -14,6 +14,8 @@ class User(TimestampMixin, Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str] = mapped_column(String(80), default="")
+    # ISO 4217 code used to format this user's amounts in the client.
+    currency: Mapped[str] = mapped_column(String(3), default="USD", server_default="USD")
     is_active: Mapped[bool] = mapped_column(default=True)
 
     # Incremented to revoke every access and refresh token issued so far.
