@@ -82,9 +82,107 @@ export type HealthResponse = {
   version: string;
 };
 
+export type CategorySpendingItem = {
+  category: string;
+  amount: string;
+  count: number;
+  percentage: number;
+};
+
+export type CategoryAnalyticsResponse = {
+  items: CategorySpendingItem[];
+  total_expenses: string;
+  currency: string;
+};
+
+export type MonthlyTrendItem = {
+  month: string;
+  label: string;
+  income: string;
+  expenses: string;
+  net: string;
+};
+
+export type MonthlyAnalyticsResponse = {
+  items: MonthlyTrendItem[];
+  currency: string;
+};
+
+export type TransactionImportResult = {
+  imported: number;
+  skipped: number;
+  errors: string[];
+};
+
+export type BudgetWithSpend = {
+  id: string;
+  category: string;
+  monthly_limit: string;
+  spent: string;
+  remaining: string;
+  percentage: number;
+  is_over_budget: boolean;
+  currency: string;
+};
+
+export type BudgetListResponse = {
+  items: BudgetWithSpend[];
+  total_budget: string;
+  total_spent: string;
+  currency: string;
+  month: string;
+};
+
+export type BudgetCreateInput = {
+  category: string;
+  monthly_limit: string;
+};
+
+export type BudgetUpdateInput = {
+  monthly_limit: string;
+};
+
+export type FrequencyType = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export type RecurringTransaction = {
+  id: string;
+  user_id: string;
+  description: string;
+  amount: string;
+  category: string | null;
+  frequency: FrequencyType;
+  start_date: string;
+  next_date: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RecurringCreateInput = {
+  description: string;
+  amount: string;
+  category?: string | null;
+  frequency?: FrequencyType;
+  start_date?: string;
+};
+
+export type RecurringUpdateInput = {
+  description?: string;
+  amount?: string;
+  category?: string | null;
+  frequency?: FrequencyType;
+  is_active?: boolean;
+};
+
+export type RecurringProcessResult = {
+  processed: number;
+  created_transactions: string[];
+};
+
 export type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
+  formData?: FormData;
   token?: string;
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal;
@@ -123,7 +221,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (options.token) {
     headers.Authorization = `Bearer ${options.token}`;
   }
-  if (options.body !== undefined) {
+  if (options.formData !== undefined) {
+    // When sending FormData, do not set Content-Type header so the runtime
+    // sets the appropriate multipart/form-data boundary.
+  } else if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
 
@@ -140,7 +241,12 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     response = await fetch(url, {
       method: options.method ?? 'GET',
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body:
+        options.formData !== undefined
+          ? options.formData
+          : options.body === undefined
+            ? undefined
+            : JSON.stringify(options.body),
       signal: controller.signal,
     });
   } catch {
@@ -167,6 +273,10 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   if (response.status === 204) {
     return undefined as T;
+  }
+
+  if (response.headers.get('content-type')?.includes('text/csv')) {
+    return (await response.text()) as unknown as T;
   }
 
   return (await response.json()) as T;
@@ -384,3 +494,214 @@ export function fetchCategories(
     token: tokenOrRequester,
   });
 }
+
+export function fetchCategoryAnalytics(
+  query: { from_date?: string; to_date?: string },
+  tokenOrRequester: string | AuthedRequester,
+): Promise<CategoryAnalyticsResponse> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<CategoryAnalyticsResponse>('/api/v1/analytics/categories', {
+      query: query as Record<string, string | number | undefined>,
+    });
+  }
+  return request<CategoryAnalyticsResponse>('/api/v1/analytics/categories', {
+    token: tokenOrRequester,
+    query: query as Record<string, string | number | undefined>,
+  });
+}
+
+export function fetchMonthlyAnalytics(
+  months: number,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<MonthlyAnalyticsResponse> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<MonthlyAnalyticsResponse>('/api/v1/analytics/monthly', {
+      query: { months },
+    });
+  }
+  return request<MonthlyAnalyticsResponse>('/api/v1/analytics/monthly', {
+    token: tokenOrRequester,
+    query: { months },
+  });
+}
+
+export function exportTransactionsCsvRequest(
+  query: TransactionQuery,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<string> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<string>('/api/v1/transactions/export', {
+      query: query as Record<string, string | number | undefined>,
+    });
+  }
+  return request<string>('/api/v1/transactions/export', {
+    token: tokenOrRequester,
+    query: query as Record<string, string | number | undefined>,
+  });
+}
+
+export function importTransactionsCsvRequest(
+  formData: FormData,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<TransactionImportResult> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<TransactionImportResult>('/api/v1/transactions/import', {
+      method: 'POST',
+      formData,
+    });
+  }
+  return request<TransactionImportResult>('/api/v1/transactions/import', {
+    method: 'POST',
+    formData,
+    token: tokenOrRequester,
+  });
+}
+
+export function fetchBudgets(
+  month: string | undefined,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<BudgetListResponse> {
+  const query = month ? { month } : undefined;
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<BudgetListResponse>('/api/v1/budgets', {
+      query,
+    });
+  }
+  return request<BudgetListResponse>('/api/v1/budgets', {
+    token: tokenOrRequester,
+    query,
+  });
+}
+
+export function createBudgetRequest(
+  input: BudgetCreateInput,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<BudgetWithSpend> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<BudgetWithSpend>('/api/v1/budgets', {
+      method: 'POST',
+      body: input,
+    });
+  }
+  return request<BudgetWithSpend>('/api/v1/budgets', {
+    method: 'POST',
+    body: input,
+    token: tokenOrRequester,
+  });
+}
+
+export function updateBudgetRequest(
+  id: string,
+  input: BudgetUpdateInput,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<BudgetWithSpend> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<BudgetWithSpend>(`/api/v1/budgets/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
+  return request<BudgetWithSpend>(`/api/v1/budgets/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: input,
+    token: tokenOrRequester,
+  });
+}
+
+export function deleteBudgetRequest(
+  id: string,
+  tokenOrRequester: string | AuthedRequester,
+): Promise<void> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<void>(`/api/v1/budgets/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+  return request<void>(`/api/v1/budgets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    token: tokenOrRequester,
+  });
+}
+
+export function fetchRecurringTransactions(
+  isActive?: boolean,
+  tokenOrRequester?: string | AuthedRequester,
+): Promise<RecurringTransaction[]> {
+  const query = isActive !== undefined ? { is_active: isActive } : undefined;
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<RecurringTransaction[]>('/api/v1/recurring', { query });
+  }
+  return request<RecurringTransaction[]>('/api/v1/recurring', {
+    token: tokenOrRequester,
+    query,
+  });
+}
+
+export function createRecurringRequest(
+  input: RecurringCreateInput,
+  tokenOrRequester?: string | AuthedRequester,
+): Promise<RecurringTransaction> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<RecurringTransaction>('/api/v1/recurring', {
+      method: 'POST',
+      body: input,
+    });
+  }
+  return request<RecurringTransaction>('/api/v1/recurring', {
+    method: 'POST',
+    body: input,
+    token: tokenOrRequester,
+  });
+}
+
+export function updateRecurringRequest(
+  id: string,
+  input: RecurringUpdateInput,
+  tokenOrRequester?: string | AuthedRequester,
+): Promise<RecurringTransaction> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<RecurringTransaction>(`/api/v1/recurring/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: input,
+    });
+  }
+  return request<RecurringTransaction>(`/api/v1/recurring/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: input,
+    token: tokenOrRequester,
+  });
+}
+
+export function deleteRecurringRequest(
+  id: string,
+  tokenOrRequester?: string | AuthedRequester,
+): Promise<void> {
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<void>(`/api/v1/recurring/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  }
+  return request<void>(`/api/v1/recurring/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    token: tokenOrRequester,
+  });
+}
+
+export function processRecurringRequest(
+  targetDate?: string,
+  tokenOrRequester?: string | AuthedRequester,
+): Promise<RecurringProcessResult> {
+  const query = targetDate ? { target_date: targetDate } : undefined;
+  if (typeof tokenOrRequester === 'function') {
+    return tokenOrRequester<RecurringProcessResult>('/api/v1/recurring/process', {
+      method: 'POST',
+      query,
+    });
+  }
+  return request<RecurringProcessResult>('/api/v1/recurring/process', {
+    method: 'POST',
+    query,
+    token: tokenOrRequester,
+  });
+}
+

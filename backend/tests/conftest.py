@@ -21,7 +21,13 @@ from app.core.rate_limit import auth_rate_limiter
 from app.db.base import Base
 from app.db.session import configure_engine, get_db
 from app.main import app
-from app.models import RefreshSession, Transaction, User  # noqa: F401
+from app.models import (  # noqa: F401
+    Budget,
+    RecurringTransaction,
+    RefreshSession,
+    Transaction,
+    User,
+)
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
 

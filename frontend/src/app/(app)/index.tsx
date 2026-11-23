@@ -13,7 +13,13 @@ import { Link, useFocusEffect } from 'expo-router';
 
 import { useAuth } from '@/auth/AuthContext';
 import { BalanceCard } from '@/components/BalanceCard';
+import { BudgetTracker } from '@/components/BudgetTracker';
+import { CategoryBreakdown } from '@/components/CategoryBreakdown';
+import { RecurringTransactionsTracker } from '@/components/RecurringTransactionsTracker';
 import { TransactionRow } from '@/components/TransactionRow';
+import { useBudgets } from '@/hooks/useBudgets';
+import { useCategoryAnalytics } from '@/hooks/useCategoryAnalytics';
+import { useRecurringTransactions } from '@/hooks/useRecurringTransactions';
 import { useTransactions } from '@/hooks/useTransactions';
 import { useTransactionSummary } from '@/hooks/useTransactionSummary';
 import { colors, radius, spacing } from '@/theme/colors';
@@ -88,6 +94,26 @@ export default function HomeScreen() {
   } = useTransactionSummary(summaryQuery);
 
   const {
+    data: categoryAnalytics,
+    loading: categoryAnalyticsLoading,
+    reload: reloadCategoryAnalytics,
+  } = useCategoryAnalytics(summaryQuery);
+
+  const targetMonthStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}`;
+  const {
+    data: budgetData,
+    loading: budgetsLoading,
+    reload: reloadBudgets,
+  } = useBudgets(targetMonthStr);
+
+  const {
+    items: recurringItems,
+    loading: recurringLoading,
+    reload: reloadRecurring,
+    processDue: processDueRecurring,
+  } = useRecurringTransactions();
+
+  const {
     transactions,
     loading: transactionsLoading,
     error: transactionsError,
@@ -99,11 +125,17 @@ export default function HomeScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.allSettled([reloadTransactions(), reloadSummary()]);
+      await Promise.allSettled([
+        reloadTransactions(),
+        reloadSummary(),
+        reloadCategoryAnalytics(),
+        reloadBudgets(),
+        reloadRecurring(),
+      ]);
     } finally {
       setRefreshing(false);
     }
-  }, [reloadTransactions, reloadSummary]);
+  }, [reloadTransactions, reloadSummary, reloadCategoryAnalytics, reloadBudgets, reloadRecurring]);
 
   const lastLoadedRevision = useRef(0);
 
@@ -112,8 +144,11 @@ export default function HomeScreen() {
       lastLoadedRevision.current = getTransactionRevision();
       void reloadTransactions();
       void reloadSummary();
+      void reloadCategoryAnalytics();
+      void reloadBudgets();
+      void reloadRecurring();
     });
-  }, [reloadTransactions, reloadSummary]);
+  }, [reloadTransactions, reloadSummary, reloadCategoryAnalytics, reloadBudgets, reloadRecurring]);
 
   useFocusEffect(
     useCallback(() => {
@@ -121,8 +156,11 @@ export default function HomeScreen() {
         lastLoadedRevision.current = getTransactionRevision();
         void reloadTransactions();
         void reloadSummary();
+        void reloadCategoryAnalytics();
+        void reloadBudgets();
+        void reloadRecurring();
       }
-    }, [reloadTransactions, reloadSummary]),
+    }, [reloadTransactions, reloadSummary, reloadCategoryAnalytics, reloadBudgets, reloadRecurring]),
   );
 
   const firstName = user?.display_name?.split(' ')[0] ?? 'there';
@@ -237,6 +275,43 @@ export default function HomeScreen() {
             label={`${monthLabel} balance`}
           />
         ) : null}
+
+        {/* Category Spending Breakdown */}
+        <CategoryBreakdown
+          currency={currency}
+          items={categoryAnalytics?.items ?? []}
+          loading={categoryAnalyticsLoading}
+          totalExpenses={Number(categoryAnalytics?.total_expenses ?? 0)}
+        />
+
+        {/* Monthly Budgets & Spending Limits */}
+        <BudgetTracker
+          currency={currency}
+          items={budgetData?.items ?? []}
+          loading={budgetsLoading}
+          monthLabel={monthLabel}
+          onBudgetChanged={() => void reloadBudgets()}
+          totalBudget={Number(budgetData?.total_budget ?? 0)}
+          totalSpent={Number(budgetData?.total_spent ?? 0)}
+        />
+
+        {/* Recurring Transactions & Subscriptions */}
+        <RecurringTransactionsTracker
+          currency={currency}
+          items={recurringItems}
+          loading={recurringLoading}
+          onChanged={() => void reloadRecurring()}
+          onProcessDue={async () => {
+            const result = await processDueRecurring();
+            if (result.processed > 0) {
+              void reloadTransactions();
+              void reloadSummary();
+              void reloadCategoryAnalytics();
+              void reloadBudgets();
+            }
+            return result.processed;
+          }}
+        />
 
         {/* Activity in Chosen Month Section */}
         <View style={styles.section}>

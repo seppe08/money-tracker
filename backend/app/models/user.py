@@ -1,10 +1,15 @@
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.budget import Budget
+    from app.models.recurring import RecurringTransaction
 
 
 class User(TimestampMixin, Base):
@@ -24,6 +29,16 @@ class User(TimestampMixin, Base):
     token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     refresh_sessions: Mapped[list[RefreshSession]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    budgets: Mapped[list[Budget]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    recurring_transactions: Mapped[list[RecurringTransaction]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,

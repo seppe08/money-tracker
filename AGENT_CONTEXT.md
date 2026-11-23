@@ -148,6 +148,35 @@ class Transaction(TimestampMixin, Base):
     occurred_on: Mapped[date] = mapped_column(Date, default=date.today)
 ```
 
+#### 4. `budgets` Table (`backend/app/models/budget.py`)
+```python
+class Budget(TimestampMixin, Base):
+    __tablename__ = "budgets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "category", name="uq_budgets_user_category"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    category: Mapped[str] = mapped_column(String(50))
+    monthly_limit: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+```
+
+#### 5. `recurring_transactions` Table (`backend/app/models/recurring.py`)
+```python
+class RecurringTransaction(TimestampMixin, Base):
+    __tablename__ = "recurring_transactions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    description: Mapped[str] = mapped_column(String(200))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))  # Positive = income, Negative = expense
+    category: Mapped[str | None] = mapped_column(String(50), default=None)
+    frequency: Mapped[str] = mapped_column(String(20), default="monthly")  # daily, weekly, monthly, yearly
+    start_date: Mapped[date] = mapped_column(Date, default=date.today)
+    next_date: Mapped[date] = mapped_column(Date, default=date.today)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+```
+
 ---
 
 ### 3.2. Cryptography, JWT & Session Algorithms
@@ -193,6 +222,20 @@ class Transaction(TimestampMixin, Base):
 | `GET` | `/api/v1/transactions/{id}` | Bearer Token | Reads owned transaction. 404 if missing, 403 if owned by another user. |
 | `PATCH` | `/api/v1/transactions/{id}` | Bearer Token | Updates owned transaction description, amount, category, or date. |
 | `DELETE`| `/api/v1/transactions/{id}` | Bearer Token | Deletes owned transaction (204). |
+| `GET` | `/api/v1/analytics/categories` | Bearer Token | **Query**: `from_date`, `to_date`.<br>**Response (200)**: `{"items": [{"category", "amount", "count", "percentage"}], "total_expenses", "currency"}`. |
+| `GET` | `/api/v1/analytics/monthly` | Bearer Token | **Query**: `months` (1–24, default 6).<br>**Response (200)**: `{"items": [{"month", "label", "income", "expenses", "net"}], "currency"}`. |
+| `GET` | `/api/v1/transactions/export` | Bearer Token | **Query**: Same filters as list.<br>**Response (200)**: Streams RFC 4180 CSV attachment (`Date,Description,Amount,Category`). |
+| `POST`| `/api/v1/transactions/import` | Bearer Token | **Multipart**: `file: UploadFile` (CSV ≤5MB).<br>**Response (200)**: `{"imported": int, "skipped": int, "errors": list[str]}`. |
+| `GET` | `/api/v1/budgets` | Bearer Token | **Query**: `month` (e.g. `2026-11`).<br>**Response (200)**: List of budgets with spend, remaining, %, and over-budget flag. |
+| `POST`| `/api/v1/budgets` | Bearer Token | **Body**: `{"category", "monthly_limit"}`. Creates budget (201). 409 if exists. |
+| `PATCH`| `/api/v1/budgets/{id}` | Bearer Token | **Body**: `{"monthly_limit"}`. Updates monthly limit. |
+| `DELETE`| `/api/v1/budgets/{id}` | Bearer Token | Deletes category budget (204). |
+| `GET` | `/api/v1/recurring` | Bearer Token | **Query**: `is_active: bool`. Lists active/inactive recurring rules. |
+| `POST`| `/api/v1/recurring` | Bearer Token | **Body**: `{"description", "amount", "category", "frequency", "start_date"}`. Creates rule (201). |
+| `POST`| `/api/v1/recurring/process` | Bearer Token | **Query**: `target_date: date`. Generates transactions due up to target date and advances `next_date`. |
+| `GET` | `/api/v1/recurring/{id}` | Bearer Token | Reads recurring rule by ID. 404 if missing or unauthorized. |
+| `PATCH`| `/api/v1/recurring/{id}` | Bearer Token | **Body**: `{"description", "amount", "category", "frequency", "is_active"}`. Updates rule. |
+| `DELETE`| `/api/v1/recurring/{id}` | Bearer Token | Deletes recurring rule (204). |
 
 ---
 
@@ -259,44 +302,52 @@ The client automatically discovers the backend host without hardcoding:
 
 ## 6. What Can Be Done (Prioritized Roadmap)
 
-### 🚀 Tier 1: Frontend User Experience (Backend Endpoints Already Live)
+### ✅ Tier 1: Frontend User Experience (COMPLETED)
 1. **"Add Transaction" Modal & Flow**:
-   * Add a Floating Action Button (FAB `+`) on `HomeScreen`.
-   * Form with description, amount (+ for income, - for expense), category selector, and date picker.
-   * Calls `POST /api/v1/transactions`.
+   * FAB (`+`) on `HomeScreen` navigating to `/add`.
+   * `TransactionForm` component with amount, segmented income/expense toggle, description, category suggestions, and date inputs.
+   * Successfully wired to `POST /api/v1/transactions`.
 2. **Edit & Delete Transaction Actions**:
-   * Tap `TransactionRow` to open an edit modal (`PATCH /api/v1/transactions/{id}`).
-   * Swipe-to-delete or delete action with confirmation dialog (`DELETE /api/v1/transactions/{id}`).
+   * Tap `TransactionRow` opens `/transaction/[id]`.
+   * Form supports update (`PATCH /api/v1/transactions/{id}`) and deletion (`DELETE /api/v1/transactions/{id}`) with confirmation alerts.
 3. **Filter & Search Bar**:
-   * Search input for keyword filtering (`search`).
-   * Category filter chips populated via `GET /api/v1/transactions/categories`.
+   * Search input with 300ms debounce.
+   * Category filter chips populated from user categories.
    * Kind filter toggle (`All`, `Income`, `Expense`).
    * Date range selection (`from_date`, `to_date`).
+   * Sort order selector (`date_desc`, `date_asc`, `amount_desc`, `amount_asc`).
 4. **Infinite Scroll Pagination**:
-   * Replace basic list with `FlatList` using `onEndReached` to fetch subsequent pages via `offset` and `limit`.
+   * `FlatList` with `onEndReached` fetching subsequent pages via `offset` and `limit` (`PAGE_SIZE = 50`).
 5. **Connect Server-Side Summary**:
-   * Hook `BalanceCard` directly to `GET /api/v1/transactions/summary`.
+   * `BalanceCard` on `HomeScreen` hooked directly to SQL-aggregate `GET /api/v1/transactions/summary`.
 6. **User Profile & Settings Screen**:
-   * Display name update and currency preference picker (`PATCH /api/v1/users/me`).
-   * Change Password form (`POST /api/v1/users/me/password`).
-   * "Sign Out of All Devices" button (`POST /api/v1/auth/logout-all`).
-   * "Delete Account" button (`DELETE /api/v1/users/me`).
+   * Profile screen at `/profile` supporting display name and currency updates (`PATCH /api/v1/users/me`).
+   * Password change form (`POST /api/v1/users/me/password`).
+   * "Sign Out of All Devices" action (`POST /api/v1/auth/logout-all`).
+   * "Delete Account" action (`DELETE /api/v1/users/me`).
+7. **Frontend Test Suite**:
+   * Unit test suite running with Node test runner (`scripts/run-tests.mjs`) covering API errors, currency/date formatters, monthly view date ranges, and form input validation.
 
 ---
 
-### 💡 Tier 2: Backend Expansions (New Schemas & Services)
-1. **Budgets & Spending Limits**:
+### 💡 Tier 2: Backend Expansions & Advanced Analytics (CURRENT FOCUS)
+1. **Analytics & Aggregations Endpoints (COMPLETED)**:
+   * `GET /api/v1/analytics/categories`: Category breakdown with amount, count, and percentage share of total expenses.
+   * `GET /api/v1/analytics/monthly`: Monthly spend and income trends over trailing 6–12 months.
+   * Visual category spending breakdown widget on HomeScreen (`CategoryBreakdown.tsx`).
+2. **CSV Export & Import (COMPLETED)**:
+   * `GET /api/v1/transactions/export`: Stream transactions as an RFC 4180 CSV file with active query filters.
+   * `POST /api/v1/transactions/import`: Multipart form upload to parse CSV statements (flexible headers, date/amount normalization) and bulk-insert transactions.
+   * "Export" button on Transactions screen with automatic Web download and mobile device alerts.
+3. **Budgets & Spending Limits (COMPLETED)**:
    * Model: `Budget` (`id`, `user_id`, `category`, `monthly_limit`, timestamps).
-   * Endpoints: `POST /api/v1/budgets`, `GET /api/v1/budgets` (calculates monthly spend vs limit).
-2. **Recurring Transactions & Subscriptions**:
-   * Model: `RecurringRule` (`id`, `user_id`, `description`, `amount`, `category`, `frequency`, `next_date`).
-   * Scheduled task to auto-generate transactions on maturity.
-3. **Analytics & Aggregations Endpoints**:
-   * `GET /api/v1/analytics/monthly`: Monthly spend and income trends over the last 12 months.
-   * `GET /api/v1/analytics/categories`: Category breakdown with percentage share of total expenses.
-4. **CSV Export & Import**:
-   * `GET /api/v1/transactions/export`: Stream transactions as a CSV file.
-   * `POST /api/v1/transactions/import`: Multipart form upload to parse bank statements and bulk-insert transactions.
+   * Endpoints: `POST /api/v1/budgets`, `GET /api/v1/budgets` (calculates monthly spend vs limit), `PATCH /api/v1/budgets/{id}`, `DELETE /api/v1/budgets/{id}`.
+   * `BudgetTracker` frontend component with live progress bars and color alerts (<80% green, 80–100% yellow, >100% red).
+4. **Recurring Transactions & Subscriptions (COMPLETED)**:
+   * Model: `RecurringTransaction` (`id`, `user_id`, `description`, `amount`, `category`, `frequency`, `start_date`, `next_date`, `is_active`).
+   * Alembic migration: `0003_recurring_transactions.py`.
+   * Endpoints: `GET /api/v1/recurring`, `POST /api/v1/recurring`, `POST /api/v1/recurring/process`, `GET /api/v1/recurring/{id}`, `PATCH /api/v1/recurring/{id}`, `DELETE /api/v1/recurring/{id}`.
+   * `RecurringTransactionsTracker` frontend component on HomeScreen with frequency badges, due status indicators, pause/resume, and one-tap process action.
 5. **Email Verification & Password Reset**:
    * Verification tokens table and transactional mailer integration (Resend / SendGrid).
 6. **Distributed Rate Limiting with Redis**:
