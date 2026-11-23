@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,8 +17,10 @@ import { Link, router, useFocusEffect } from 'expo-router';
 
 import {
   errorMessage,
+  exportTransactionsCsvRequest,
   fetchCategories,
   fetchTransactions,
+  type SortOrder,
   type Transaction,
   type TransactionQuery,
 } from '@/api/client';
@@ -24,6 +28,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { DateInput } from '@/components/DateInput';
 import { TransactionRow } from '@/components/TransactionRow';
 import { colors, radius, spacing } from '@/theme/colors';
+import { downloadCsvFile } from '@/utils/export';
 import {
   getTransactionRevision,
   subscribeTransactionCreated,
@@ -32,6 +37,13 @@ import {
 const PAGE_SIZE = 50;
 
 type KindFilter = 'all' | 'income' | 'expense';
+
+const SORT_OPTIONS: { label: string; value: SortOrder }[] = [
+  { label: 'Newest', value: 'date_desc' },
+  { label: 'Oldest', value: 'date_asc' },
+  { label: 'Amount: High to Low', value: 'amount_desc' },
+  { label: 'Amount: Low to High', value: 'amount_asc' },
+];
 
 function isValidDateParam(val: string): boolean {
   if (!val) return false;
@@ -50,6 +62,7 @@ export default function TransactionsScreen() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [sort, setSort] = useState<SortOrder>('date_desc');
 
   const isDateRangeInvalid =
     isValidDateParam(fromDate) && isValidDateParam(toDate) && fromDate > toDate;
@@ -71,6 +84,7 @@ export default function TransactionsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   const currentQueryKey = JSON.stringify({
     debouncedSearch: debouncedSearch.trim(),
@@ -78,6 +92,7 @@ export default function TransactionsScreen() {
     selectedCategory,
     fromDate: isValidDateParam(fromDate) ? fromDate : '',
     toDate: isValidDateParam(toDate) ? toDate : '',
+    sort,
     reloadKey,
   });
 
@@ -134,6 +149,7 @@ export default function TransactionsScreen() {
       kind: kind === 'all' ? undefined : kind,
       from_date: isValidDateParam(fromDate) ? fromDate : undefined,
       to_date: isValidDateParam(toDate) ? toDate : undefined,
+      sort,
     };
 
     fetchTransactions(query, authedRequest)
@@ -168,6 +184,7 @@ export default function TransactionsScreen() {
     isDateRangeInvalid,
     kind,
     selectedCategory,
+    sort,
     toDate,
   ]);
 
@@ -200,6 +217,7 @@ export default function TransactionsScreen() {
         kind: kind === 'all' ? undefined : kind,
         from_date: isValidDateParam(fromDate) ? fromDate : undefined,
         to_date: isValidDateParam(toDate) ? toDate : undefined,
+        sort,
       };
 
       const data = await fetchTransactions(query, authedRequest);
@@ -236,6 +254,7 @@ export default function TransactionsScreen() {
     loadingMore,
     refreshing,
     selectedCategory,
+    sort,
     toDate,
     total,
     transactions.length,
@@ -268,6 +287,7 @@ export default function TransactionsScreen() {
         kind: kind === 'all' ? undefined : kind,
         from_date: isValidDateParam(fromDate) ? fromDate : undefined,
         to_date: isValidDateParam(toDate) ? toDate : undefined,
+        sort,
       };
 
       const data = await fetchTransactions(query, authedRequest);
@@ -290,6 +310,7 @@ export default function TransactionsScreen() {
     isDateRangeInvalid,
     kind,
     selectedCategory,
+    sort,
     toDate,
   ]);
 
@@ -318,12 +339,43 @@ export default function TransactionsScreen() {
     }
   };
 
+  const handleExportCsv = useCallback(async () => {
+    setExporting(true);
+    try {
+      const query: TransactionQuery = {
+        search: debouncedSearch.trim() || undefined,
+        category: selectedCategory ?? undefined,
+        kind: kind === 'all' ? undefined : kind,
+        from_date: isValidDateParam(fromDate) ? fromDate : undefined,
+        to_date: isValidDateParam(toDate) ? toDate : undefined,
+        sort,
+      };
+      const csvData = await exportTransactionsCsvRequest(query, authedRequest);
+      const downloaded = downloadCsvFile(
+        csvData,
+        `transactions_${new Date().toISOString().slice(0, 10)}.csv`,
+      );
+      if (!downloaded && Platform.OS !== 'web') {
+        const rowCount = Math.max(0, csvData.trim().split('\n').length - 1);
+        Alert.alert(
+          'Export Ready',
+          `Exported ${rowCount} transactions. On web browsers, CSV files download directly to your device.`,
+        );
+      }
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setExporting(false);
+    }
+  }, [authedRequest, debouncedSearch, fromDate, kind, selectedCategory, sort, toDate]);
+
   const hasActiveFilters = Boolean(
     searchText ||
       kind !== 'all' ||
       selectedCategory !== null ||
       fromDate ||
-      toDate,
+      toDate ||
+      sort !== 'date_desc',
   );
 
   const handleClearFilters = () => {
@@ -333,6 +385,7 @@ export default function TransactionsScreen() {
     setSelectedCategory(null);
     setFromDate('');
     setToDate('');
+    setSort('date_desc');
   };
 
   const renderEmptyComponent = () => {
@@ -425,15 +478,34 @@ export default function TransactionsScreen() {
           <Text style={styles.backButtonText}>← Back</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Transactions</Text>
-        <Link href="/add" asChild>
+        <View style={styles.headerActions}>
           <Pressable
-            accessibilityLabel="Add transaction"
+            accessibilityLabel="Export transactions as CSV"
             accessibilityRole="button"
-            style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+            disabled={exporting}
+            onPress={() => void handleExportCsv()}
+            style={({ pressed }) => [
+              styles.exportButton,
+              pressed && styles.pressed,
+              exporting && styles.disabled,
+            ]}
           >
-            <Text style={styles.addButtonText}>+ Add</Text>
+            {exporting ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <Text style={styles.exportButtonText}>Export</Text>
+            )}
           </Pressable>
-        </Link>
+          <Link href="/add" asChild>
+            <Pressable
+              accessibilityLabel="Add transaction"
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.addButtonText}>+ Add</Text>
+            </Pressable>
+          </Link>
+        </View>
       </View>
 
       <View style={styles.filtersContainer}>
@@ -626,6 +698,42 @@ export default function TransactionsScreen() {
           ) : null}
         </View>
 
+        {/* Sort order selector */}
+        <View style={styles.sortSection}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sortChipsScroll}
+          >
+            {SORT_OPTIONS.map((opt) => {
+              const isSelected = sort === opt.value;
+              return (
+                <Pressable
+                  key={opt.value}
+                  accessibilityLabel={`Sort by ${opt.label}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => setSort(opt.value)}
+                  style={({ pressed }) => [
+                    styles.sortChip,
+                    isSelected && styles.sortChipActive,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sortChipText,
+                      isSelected && styles.sortChipTextActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         {/* Results count & reset filters */}
         <View style={styles.summaryBar}>
           <Text style={styles.summaryCount}>
@@ -691,6 +799,28 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 20,
     fontWeight: '700',
+  },
+  headerActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  exportButton: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  exportButtonText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  disabled: {
+    opacity: 0.6,
   },
   backButton: {
     paddingHorizontal: spacing.xs,
@@ -821,6 +951,34 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   categoryChipTextActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  sortSection: {
+    paddingVertical: 2,
+  },
+  sortChipsScroll: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  sortChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  sortChipActive: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.primary,
+  },
+  sortChipText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  sortChipTextActive: {
     color: colors.primary,
     fontWeight: '600',
   },
