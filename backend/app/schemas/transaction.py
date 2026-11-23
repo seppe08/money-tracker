@@ -103,3 +103,12 @@ class TransactionSummary(BaseModel):
     expenses: Decimal
     count: int
     currency: str
+
+
+class TransactionImportResult(BaseModel):
+    imported: int = Field(description="Number of successfully imported transactions")
+    skipped: int = Field(description="Number of skipped empty rows")
+    errors: list[str] = Field(
+        default_factory=list,
+        description="Validation error messages encountered on invalid rows",
+    )
